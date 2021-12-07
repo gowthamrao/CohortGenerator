@@ -43,14 +43,6 @@ test_that("Call instatiateCohortSet with incremental = TRUE and no folder specif
                message = "Must specify incrementalFolder")
 })
 
-# test_that("Ensure instatiateCohortSet is single threaded", {
-#   expect_error(generateCohortSet(connectionDetails = connectionDetails,
-#                                     cohortDefinitionSet = createEmptyCohortDefinitionSet(),
-#                                     numThreads = 2),
-#                message = "numThreads must be set to 1 for now.")
-# })
-
-
 # getInclusionStatistics ------
 test_that("Call getInclusionStatistics without connection or connectionDetails", {
   expect_error(getInclusionStatistics(),
@@ -75,7 +67,8 @@ test_that("Create cohorts with stats, Incremental = F, Gather Results", {
   cohortTableNames <- getCohortTableNames(cohortTable = "genStats")
   createCohortTables(connectionDetails = connectionDetails,
                      cohortDatabaseSchema = "main",
-                     cohortTableNames = cohortTableNames)
+                     cohortTableNames = cohortTableNames,
+                     createCohortStatsTables = TRUE)
   cohortsWithStats <- getCohortsForTest(cohorts, generateStats = TRUE)
   cohortsGenerated <- generateCohortSet(connectionDetails = connectionDetails,
                                         cdmDatabaseSchema = "main",
@@ -94,7 +87,8 @@ test_that("Create cohorts with stats, Incremental = T", {
   cohortTableNames <- getCohortTableNames(cohortTable = "genStatsInc")
   createCohortTables(connectionDetails = connectionDetails,
                      cohortDatabaseSchema = "main",
-                     cohortTableNames = cohortTableNames)
+                     cohortTableNames = cohortTableNames,
+                     createCohortStatsTables = TRUE)
   # 1st run first to ensure that all cohorts are generated
   cohortsWithStats <- getCohortsForTest(cohorts, generateStats = TRUE)
   cohortsGenerated <- generateCohortSet(connectionDetails = connectionDetails,
@@ -265,7 +259,8 @@ test_that("Insert cohort stats expected use-case", {
   cohortTableNames <- getCohortTableNames(cohortTable = "stats_insert")
   createCohortTables(connectionDetails = connectionDetails,
                      cohortDatabaseSchema = "main",
-                     cohortTableNames = cohortTableNames)
+                     cohortTableNames = cohortTableNames,
+                     createCohortStatsTables = TRUE)
 
   # Obtain a list of cohorts with inclusion rule stats
   cohortsWithStats <- getCohortsForTest(cohorts, generateStats = TRUE)
@@ -316,7 +311,8 @@ test_that("Insert cohort stats with inclusion rule name that is empty", {
   cohortTableNames <- getCohortTableNames(cohortTable = "stats_name_empty")
   createCohortTables(connectionDetails = connectionDetails,
                      cohortDatabaseSchema = "main",
-                     cohortTableNames = cohortTableNames)
+                     cohortTableNames = cohortTableNames,
+                     createCohortStatsTables = TRUE)
 
   # Obtain a list of cohorts with inclusion rule stats
   cohortsWithStats <- getCohortsForTest(cohorts, generateStats = TRUE)
@@ -346,7 +342,8 @@ test_that("Insert cohort stats with no inclusion rules generates warning", {
   cohortTableNames <- getCohortTableNames(cohortTable = "stats_missing")
   createCohortTables(connectionDetails = connectionDetails,
                      cohortDatabaseSchema = "main",
-                     cohortTableNames = cohortTableNames)
+                     cohortTableNames = cohortTableNames,
+                     createCohortStatsTables = TRUE)
 
   # Obtain a list of cohorts with inclusion rule stats
   cohortsWithStats <- getCohortsForTest(cohorts, generateStats = TRUE)

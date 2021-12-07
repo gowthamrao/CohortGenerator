@@ -111,14 +111,19 @@ Cohorts defined in ATLAS may define one or more inclusion criteria as part of th
 cohortDefinitionSet <- ROhdsiWebApi::exportCohortDefinitionSet(baseUrl = baseUrl,
                                                                cohortIds = cohortsForGeneration$id,
                                                                generateStats = TRUE)
+```
 
+Next we'll create the tables to store the cohort and the cohort statistics. Since we have chosen to `generateStats`, when creating the cohort tables, we need to set `createCohortStatsTables = TRUE` to create the proper tables to hold the results. Then we can generate the cohorts.
+
+```{r, results='hide', error=FALSE, warning=FALSE, message=FALSE}
 # First get the cohort table names to use for this generation task
 cohortTableNames <- CohortGenerator::getCohortTableNames(cohortTable = "stats_example")
 
 # Next create the tables on the database
 CohortGenerator::createCohortTables(connectionDetails = connectionDetails,
                                     cohortTableNames = cohortTableNames,
-                                    cohortDatabaseSchema = "main")
+                                    cohortDatabaseSchema = "main",
+                                    createCohortStatsTables = TRUE)
 
 # We can then generate the cohorts the same way as before and it will use the 
 # cohort statstics tables to store the results
@@ -166,6 +171,7 @@ cohortTableNames <- CohortGenerator::getCohortTableNames(cohortTable = "incremen
 CohortGenerator::createCohortTables(connectionDetails = connectionDetails,
                                     cohortTableNames = cohortTableNames,
                                     cohortDatabaseSchema = "main",
+                                    createCohortStatsTables = TRUE,
                                     incremental = TRUE)
 
 ```
@@ -175,6 +181,7 @@ As expected, the code created the cohort tables as requested. Under the hood, si
 CohortGenerator::createCohortTables(connectionDetails = connectionDetails,
                                     cohortTableNames = cohortTableNames,
                                     cohortDatabaseSchema = "main",
+                                    createCohortStatsTables = TRUE,
                                     incremental = TRUE)
 
 ```
@@ -202,6 +209,7 @@ CohortGenerator::generateCohortSet(connectionDetails= connectionDetails,
                                    incremental = TRUE,
                                    incrementalFolder = file.path(someFolder, "RecordKeeping"))
 ```
+
 #### Potential Pitfalls of Incremental Mode
 
 Incremental mode makes some assumptions to provide a more flexible way to generate cohorts. These assumptions come with some risks that we would like to highlight:

@@ -68,6 +68,9 @@ getCohortTableNames <- function(cohortTable = "cohort",
 #' @param cohortTableNames            The names of the cohort tables. See \code{\link{getCohortTableNames}}
 #'                                    for more details.
 #'                                    
+#' @param createCohortStatsTables     When set to TRUE, this function will also create the cohort statistics
+#'                                    tables.
+#'                                    
 #' @param incremental                 When set to TRUE, this function will check to see
 #'                                    if the cohortTableNames exists in the cohortDatabaseSchema
 #'                                    and if they exist, it will skip creating the tables.
@@ -77,6 +80,7 @@ createCohortTables <- function(connectionDetails = NULL,
                                connection = NULL,
                                cohortDatabaseSchema,
                                cohortTableNames = getCohortTableNames(),
+                               createCohortStatsTables = FALSE,
                                incremental = FALSE) {
   if (is.null(connection) && is.null(connectionDetails)) {
     stop("You must provide either a database connection or the connection details.")
@@ -90,7 +94,12 @@ createCohortTables <- function(connectionDetails = NULL,
   
   # Create a list of the tables to create and determine which require creation
   # if we are incremental mode
-  createTableFlagList <- lapply(cohortTableNames, FUN=function(x) { x = TRUE })
+  if (createCohortStatsTables) {
+    createTableFlagList <- lapply(cohortTableNames, FUN=function(x) { x = TRUE })
+  } else {
+    createTableFlagList <- lapply(cohortTableNames, FUN=function(x, tables) { ifelse(x == tables["cohortTable"], TRUE, FALSE) }, tables = cohortTableNames)
+  }
+  
   if (incremental) {
     tables <- DatabaseConnector::getTableNames(connection, cohortDatabaseSchema)
     for (i in 1:length(cohortTableNames)) {

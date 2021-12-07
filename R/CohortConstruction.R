@@ -99,34 +99,17 @@ generateCohortSet <- function(connectionDetails = NULL,
     }
   }
   
-  # This is for when we parallel cohort generation
-  #if (numThreads < 1 || numThreads > parallel::detectCores()) {
-  #  stop(paste0("The numThreads argument must be between 1 and", parallel::detectCores()))
-  #}
-
   start <- Sys.time()
   if (is.null(connection)) {
     connection <- DatabaseConnector::connect(connectionDetails)
     on.exit(DatabaseConnector::disconnect(connection))
   }
   
-  # Verify the cohort tables exist and if they do not
+  # Verify the cohort table exists and if not
   # stop the generation process
-  tableExistsFlagList <- lapply(cohortTableNames, FUN=function(x) { x = FALSE })
   tables <- DatabaseConnector::getTableNames(connection, cohortDatabaseSchema)
-  for (i in 1:length(cohortTableNames)) {
-    if (toupper(cohortTableNames[i]) %in% toupper(tables)) {
-      tableExistsFlagList[i] <- TRUE
-    }
-  }
-
-  if (!all(unlist(tableExistsFlagList, use.names = FALSE))) {
-    errorMsg <- "The following tables have not been created: \n"
-    for (i in 1:length(cohortTableNames)) {
-      if (!tableExistsFlagList[[i]]) {
-        errorMsg <- paste0(errorMsg, "   - ", cohortTableNames[i], "\n")
-      }
-    }
+  if (!(toupper(cohortTableNames$cohortTable) %in% tables)) {
+    errorMsg <- paste0("The cohort table is missing: ", cohortDatabaseSchema, ".", cohortTableNames$cohortTable, ".\n")
     errorMsg <- paste(errorMsg, "Please use the createCohortTables function to ensure all tables exist before generating cohorts.", sep = "\n")
     stop(errorMsg)
   }
@@ -136,13 +119,6 @@ generateCohortSet <- function(connectionDetails = NULL,
     cohortDefinitionSet$checksum <- computeChecksum(cohortDefinitionSet$sql)
     recordKeepingFile <- file.path(incrementalFolder, "GeneratedCohorts.csv")
   }
-
-  # Revisit parallel generation later
-  # if (numThreads > 1) {
-  #   cluster <- ParallelLogger::logInfo(paste0("Generating cohorts in parallel using ",
-  #                                             numThreads,
-  #                                             " threads. Individual cohort generation progress will not be displayed in the console."))
-  # }
 
   # Create the cluster
   cluster <- ParallelLogger::makeCluster(numberOfThreads = 1)

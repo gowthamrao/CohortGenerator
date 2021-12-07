@@ -9,6 +9,7 @@ createCohortTables(
   connection = NULL,
   cohortDatabaseSchema,
   cohortTableNames = getCohortTableNames(),
+  createCohortStatsTables = FALSE,
   incremental = FALSE
 )
 }
@@ -30,6 +31,9 @@ name, for example 'scratch.dbo'.}
 
 \item{cohortTableNames}{The names of the cohort tables. See \code{\link{getCohortTableNames}}
 for more details.}
+
+\item{createCohortStatsTables}{When set to TRUE, this function will also create the cohort statistics
+tables.}
 
 \item{incremental}{When set to TRUE, this function will check to see
 if the cohortTableNames exists in the cohortDatabaseSchema
