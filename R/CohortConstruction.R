@@ -220,6 +220,10 @@ generateCohort <- function(cohortId = NULL,
       results_database_schema.cohort_censor_stats = paste(cohortDatabaseSchema, cohortTableNames$cohortCensorStatsTable, sep = "."),
       warnOnMissingParameters = FALSE
     )
+    
+    ParallelLogger::logInfo("DEBUG - connection@dbms: ", connection@dbms)
+    ParallelLogger::logInfo("DEBUG - connection: ", ParallelLogger::convertSettingsToJson(connection))
+    
     sql <- SqlRender::translate(
       sql = sql,
       targetDialect = connection@dbms,
