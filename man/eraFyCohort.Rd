@@ -11,7 +11,7 @@ eraFyCohort(
   cohortTable = "cohort",
   oldToNewCohortId,
   eraconstructorpad = 0,
-  tempEmulationSchema = NULL,
+  tempEmulationSchema = getOption("sqlRenderTempEmulationSchema"),
   purgeConflicts = FALSE
 )
 }

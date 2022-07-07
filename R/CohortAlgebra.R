@@ -42,7 +42,7 @@ eraFyCohort <- function(connectionDetails = NULL,
                         cohortTable = "cohort",
                         oldToNewCohortId,
                         eraconstructorpad = 0,
-                        tempEmulationSchema = NULL,
+                        tempEmulationSchema = getOption("sqlRenderTempEmulationSchema"),
                         purgeConflicts = FALSE) {
   errorMessages <- checkmate::makeAssertCollection()
   checkmate::assertDataFrame(x = oldToNewCohortId,
@@ -114,39 +114,12 @@ eraFyCohort <- function(connectionDetails = NULL,
     }
   }
   
-  DatabaseConnector::insertTable(
+  copyCohortsToTempTable(
     connection = connection,
-    tableName = "#old_to_new_cohort_id",
-    createTable = TRUE,
-    dropTableIfExists = TRUE,
-    tempTable = TRUE,
-    tempEmulationSchema = tempEmulationSchema,
-    progressBar = FALSE,
-    bulkLoad = (Sys.getenv("bulkLoad") == TRUE),
-    camelCaseToSnakeCase = TRUE,
-    data = oldToNewCohortId
-  )
-  
-  sqlCopyCohort <- "
-                  DROP TABLE IF EXISTS #cohort_rows;
-                  SELECT target.new_cohort_id cohort_definition_id,
-                          source.subject_id,
-                          source.cohort_start_date,
-                          source.cohort_end_date
-                  INTO #cohort_rows
-                  FROM {@cohort_database_schema != ''} ? {@cohort_database_schema.@cohort_table} : {@cohort_table} source
-                  INNER JOIN #old_to_new_cohort_id target
-                  ON source.cohort_definition_id = target.old_cohort_id
-                  ;"
-  
-  DatabaseConnector::renderTranslateExecuteSql(
-    connection = connection,
-    sql = sqlCopyCohort,
-    profile = FALSE,
-    progressBar = FALSE,
-    reportOverallTime = FALSE,
-    cohort_database_schema = cohortDatabaseSchema,
-    cohort_table = cohortTable
+    oldToNewCohortId = oldToNewCohortId,
+    sourceCohortDatabaseSchema = cohortDatabaseSchema,
+    sourceCohortTable = cohortTable,
+    targetCohortTable = "#cohort_rows"
   )
   
   sqlEraFy <- " DROP TABLE IF EXISTS #final_cohort;
@@ -217,6 +190,7 @@ eraFyCohort <- function(connectionDetails = NULL,
     profile = FALSE,
     progressBar = FALSE,
     reportOverallTime = FALSE,
+    tempEmulationSchema = tempEmulationSchema,
     eraconstructorpad = eraconstructorpad
   )
   
@@ -264,6 +238,7 @@ eraFyCohort <- function(connectionDetails = NULL,
     progressBar = FALSE,
     reportOverallTime = FALSE,
     cohort_database_schema = cohortDatabaseSchema,
+    tempEmulationSchema = tempEmulationSchema,
     cohort_table = cohortTable
   )
   
@@ -298,6 +273,7 @@ deleteCohortRecords <- function(connectionDetails = NULL,
                                 connection = NULL,
                                 cohortDatabaseSchema,
                                 cohortTable = "cohort",
+                                tempEmulationSchema = getOption("sqlRenderTempEmulationSchema"),
                                 cohortIds) {
   errorMessages <- checkmate::makeAssertCollection()
   checkmate::assertIntegerish(
@@ -338,6 +314,7 @@ deleteCohortRecords <- function(connectionDetails = NULL,
     progressBar = FALSE,
     reportOverallTime = FALSE,
     cohort_database_schema = cohortDatabaseSchema,
+    tempEmulationSchema = tempEmulationSchema,
     cohort_table = cohortTable,
     cohort_ids = cohortIds
   )
@@ -348,7 +325,7 @@ getCohortIdsInCohortTable <- function(connectionDetails = NULL,
                                       connection = NULL,
                                       cohortDatabaseSchema = NULL,
                                       cohortTable,
-                                      tempEmulationSchema = NULL) {
+                                      tempEmulationSchema = getOption("sqlRenderTempEmulationSchema")) {
   cohortIdsInCohortTable <-
     DatabaseConnector::renderTranslateQuerySql(
       connection = connection,
@@ -356,10 +333,59 @@ getCohortIdsInCohortTable <- function(connectionDetails = NULL,
              FROM {@cohort_database_schema != ''} ? {@cohort_database_schema.@cohort_table} : {@cohort_table};",
       snakeCaseToCamelCase = TRUE,
       cohort_database_schema = cohortDatabaseSchema,
+      tempEmulationSchema = tempEmulationSchema,
       cohort_table = cohortTable
     ) %>%
     dplyr::pull(.data$cohortDefinitionId) %>%
     unique() %>%
     sort()
   return(cohortIdsInCohortTable)
+}
+
+
+
+copyCohortsToTempTable <- function(connectionDetails = NULL,
+                                   connection = NULL,
+                                   oldToNewCohortId,
+                                   sourceCohortDatabaseSchema = NULL,
+                                   sourceCohortTable,
+                                   targetCohortDatabaseSchema = NULL,
+                                   targetCohortTable = "#cohort_rows",
+                                   tempEmulationSchema = getOption("sqlRenderTempEmulationSchema")) {
+  DatabaseConnector::insertTable(
+    connection = connection,
+    tableName = "#old_to_new_cohort_id",
+    createTable = TRUE,
+    dropTableIfExists = TRUE,
+    tempTable = TRUE,
+    tempEmulationSchema = tempEmulationSchema,
+    progressBar = FALSE,
+    bulkLoad = (Sys.getenv("bulkLoad") == TRUE),
+    camelCaseToSnakeCase = TRUE,
+    data = oldToNewCohortId
+  )
+  
+  sqlCopyCohort <- "
+                  DROP TABLE IF EXISTS @target_cohort_table;
+                  SELECT target.new_cohort_id cohort_definition_id,
+                          source.subject_id,
+                          source.cohort_start_date,
+                          source.cohort_end_date
+                  INTO @target_cohort_table
+                  FROM {@source_database_schema != ''} ? {@source_database_schema.@source_cohort_table} : {@source_cohort_table} source
+                  INNER JOIN #old_to_new_cohort_id target
+                  ON source.cohort_definition_id = target.old_cohort_id
+                  ;"
+  
+  DatabaseConnector::renderTranslateExecuteSql(
+    connection = connection,
+    sql = sqlCopyCohort,
+    profile = FALSE,
+    progressBar = FALSE,
+    reportOverallTime = FALSE,
+    source_database_schema = sourceCohortDatabaseSchema,
+    source_cohort_table = sourceCohortTable,
+    target_cohort_table = targetCohortTable,
+    tempEmulationSchema = tempEmulationSchema
+  )
 }

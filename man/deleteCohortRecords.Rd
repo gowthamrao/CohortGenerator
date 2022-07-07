@@ -9,6 +9,7 @@ deleteCohortRecords(
   connection = NULL,
   cohortDatabaseSchema,
   cohortTable = "cohort",
+  tempEmulationSchema = getOption("sqlRenderTempEmulationSchema"),
   cohortIds
 )
 }
