@@ -9,8 +9,10 @@ eraFyCohort(
   connection = NULL,
   cohortDatabaseSchema,
   cohortTable = "cohort",
-  cohortIds,
-  eraconstructorpad = 0
+  oldToNewCohortId,
+  eraconstructorpad = 0,
+  tempEmulationSchema = NULL,
+  purgeConflicts = FALSE
 )
 }
 \arguments{
@@ -31,9 +33,21 @@ this should include both the database and schema name, for example
 
 \item{cohortTable}{The name of the cohort table.}
 
-\item{cohortIds}{An array of cohort Ids in the cohort table to apply cohort era logic.}
+\item{oldToNewCohortId}{A data.frame object with two columns. oldCohortId and newCohortId. Both should be integers.
+The oldCohortId are the cohorts that are the input cohorts that need to be transformed.
+The newCohortId are the cohortIds of the corresponding output after transformation.
+If the oldCohortId = newCohortId then the data corresponding to oldCohortId 
+will be replaced by the data from the newCohortId.}
 
 \item{eraconstructorpad}{Optional value to pad cohort era construction logic. Default = 0. i.e. no padding.}
+
+\item{tempEmulationSchema}{Some database platforms like Oracle and Impala do not truly support
+temp tables. To emulate temp tables, provide a schema with write
+privileges where temp tables can be created.}
+
+\item{purgeConflicts}{If there are conflicts in the target cohort table i.e. the target cohort table
+already has records with newCohortId, do you want to purge and replace them 
+with transformed. By default - it will not be replaced, and an error message is thrown.}
 }
 \description{
 Given a table with cohort_definition_id, subject_id, cohort_start_date,

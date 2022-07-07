@@ -26,8 +26,10 @@
 #'
 #' @template CohortTable
 #'
-#' @param cohortIds           An array of cohort Ids in the cohort table to apply cohort era logic.
-#' 
+#' @template OldToNewCohortId
+#'
+#' @template TempEmulationSchema
+#'
 #' @param eraconstructorpad   Optional value to pad cohort era construction logic. Default = 0. i.e. no padding.
 #'
 #' @return
@@ -38,11 +40,27 @@ eraFyCohort <- function(connectionDetails = NULL,
                         connection = NULL,
                         cohortDatabaseSchema,
                         cohortTable = "cohort",
-                        cohortIds,
-                        eraconstructorpad = 0) {
+                        oldToNewCohortId,
+                        eraconstructorpad = 0,
+                        tempEmulationSchema = NULL,
+                        purgeConflicts = FALSE) {
   errorMessages <- checkmate::makeAssertCollection()
+  checkmate::assertDataFrame(x = oldToNewCohortId,
+                             min.rows = 1,
+                             add = errorMessages)
+  checkmate::assertNames(
+    x = colnames(oldToNewCohortId),
+    must.include = c("oldCohortId", "newCohortId"),
+    add = errorMessages
+  )
   checkmate::assertIntegerish(
-    x = cohortIds,
+    x = oldToNewCohortId$oldCohortId,
+    min.len = 1,
+    null.ok = FALSE,
+    add = errorMessages
+  )
+  checkmate::assertIntegerish(
+    x = oldToNewCohortId$newCohortId,
     min.len = 1,
     null.ok = FALSE,
     add = errorMessages
@@ -70,12 +88,52 @@ eraFyCohort <- function(connectionDetails = NULL,
     on.exit(DatabaseConnector::disconnect(connection))
   }
   
+  cohortIdsInCohortTable <-
+    getCohortIdsInCohortTable(
+      connection = connection,
+      cohortDatabaseSchema = cohortDatabaseSchema,
+      cohortTable = cohortTable,
+      tempEmulationSchema = tempEmulationSchema
+    )
+  
+  conflicitingCohortIdsInTargetCohortTable <-
+    intersect(x = oldToNewCohortId$newCohortId %>% unique,
+              y = cohortIdsInCohortTable %>% unique())
+  
+  performPurgeConflicts <- FALSE
+  if (length(conflicitingCohortIdsInTargetCohortTable) > 0) {
+    if (purgeConflicts) {
+      performPurgeConflicts <- TRUE
+    } else {
+      stop(paste0("The following cohortIds already exist in the target cohort table, causing conflicts :",
+                  paste0(conflicitingCohortIdsInTargetCohortTable, collapse = ",")))
+    }
+  }
+  
+  DatabaseConnector::insertTable(
+    connection = connection,
+    tableName = "#old_to_new_cohort_id",
+    createTable = TRUE,
+    dropTableIfExists = TRUE,
+    tempTable = TRUE,
+    tempEmulationSchema = tempEmulationSchema,
+    progressBar = FALSE,
+    bulkLoad = (Sys.getenv("bulkLoad") == TRUE),
+    camelCaseToSnakeCase = TRUE,
+    data = oldToNewCohortId
+  )
+  
   sqlCopyCohort <- "
                   DROP TABLE IF EXISTS #cohort_rows;
-                  SELECT cohort_definition_id, subject_id, cohort_start_date, cohort_end_date
+                  SELECT target.new_cohort_id cohort_definition_id,
+                          source.subject_id,
+                          source.cohort_start_date,
+                          source.cohort_end_date
                   INTO #cohort_rows
-                  FROM {@cohort_database_schema != ''} ? {@cohort_database_schema.@cohort_table} : {@cohort_table}
-                  WHERE cohort_definition_id IN (@cohort_ids);"
+                  FROM {@cohort_database_schema != ''} ? {@cohort_database_schema.@cohort_table} : {@cohort_table} source
+                  INNER JOIN #old_to_new_cohort_id target
+                  ON source.cohort_definition_id = target.old_cohort_id
+                  ;"
   
   DatabaseConnector::renderTranslateExecuteSql(
     connection = connection,
@@ -84,8 +142,7 @@ eraFyCohort <- function(connectionDetails = NULL,
     progressBar = FALSE,
     reportOverallTime = FALSE,
     cohort_database_schema = cohortDatabaseSchema,
-    cohort_table = cohortTable,
-    cohort_ids = cohortIds
+    cohort_table = cohortTable
   )
   
   sqlEraFy <- " DROP TABLE IF EXISTS #final_cohort;
@@ -159,82 +216,89 @@ eraFyCohort <- function(connectionDetails = NULL,
     eraconstructorpad = eraconstructorpad
   )
   
-  DatabaseConnector::renderTranslateExecuteSql(
-    connection = connection,
-    sql = " DELETE
-            FROM {@cohort_database_schema != ''} ? {@cohort_database_schema.@cohort_table} : {@cohort_table}
-            WHERE cohort_definition_id = @cohort_ids;",
-    profile = FALSE,
-    progressBar = FALSE,
-    reportOverallTime = FALSE,
-    cohort_database_schema = cohortDatabaseSchema,
-    cohort_table = cohortTable,
-    cohort_ids = cohortIds
-  )
+  cohortIdsToDeleteFromSource <- oldToNewCohortId %>%
+    dplyr::filter(.data$oldCohortId == .data$newCohortId) %>%
+    dplyr::pull(.data$oldCohortId)
   
+  if (length(cohortIdsToDeleteFromSource) > 0) {
+    ParallelLogger::logInfo(
+      paste0(
+        "The following cohortIds will be deleted from your cohort table and \n",
+        " replaced with ear fy'd version of those cohorts using the same original cohort id: ",
+        paste0(cohortIdsToDeleteFromSource, collapse = ",")
+      )
+    )
+    deleteCohortRecords(
+      connection = connection,
+      cohortDatabaseSchema = cohortDatabaseSchema,
+      cohortTable = cohortTable,
+      cohortIds = cohortIdsToDeleteFromSource
+    )
+  }
+  
+  if (performPurgeConflicts) {
+    ParallelLogger::logInfo(
+      paste0(
+        "The following conflicting cohortIds will be deleted from your cohort table \n",
+        " as part resolving conflicts: ",
+        paste0(conflicitingCohortIdsInTargetCohortTable, collapse = ",")
+      )
+    )
+    deleteCohortRecords(
+      connection = connection,
+      cohortDatabaseSchema = cohortDatabaseSchema,
+      cohortTable = cohortTable,
+      cohortIds = conflicitingCohortIdsInTargetCohortTable
+    )
+  }
   DatabaseConnector::renderTranslateExecuteSql(
     connection = connection,
     sql = " INSERT INTO {@cohort_database_schema != ''} ? {@cohort_database_schema.@cohort_table} : {@cohort_table}
             SELECT cohort_definition_id, subject_id, cohort_start_date, cohort_end_date
-            FROM #final_cohort
-            WHERE cohort_definition_id = @cohort_ids;",
+            FROM #final_cohort;",
     profile = FALSE,
     progressBar = FALSE,
     reportOverallTime = FALSE,
-    cohort_database_schema = cohortDatabaseSchema, 
-    cohort_table = cohortTable,
-    cohort_ids = cohortIds
+    cohort_database_schema = cohortDatabaseSchema,
+    cohort_table = cohortTable
   )
   
   DatabaseConnector::renderTranslateExecuteSql(
     connection = connection,
     sql = " DROP TABLE IF EXISTS #cohort_rows;
-            DROP TABLE IF EXISTS #final_cohort;",
+            DROP TABLE IF EXISTS #final_cohort;
+            DROP TABLE IF EXISTS #old_to_new_cohort_id;",
     profile = FALSE,
     progressBar = FALSE,
     reportOverallTime = FALSE
   )
 }
 
-
-
-#' union cohort
+#' Delete cohort records.
 #'
 #' @description
-#' Given cohortIds of instantiated cohorts in a cohort table,
-#' create a new derived cohort in the same table with a new cohort_definition_id
-#' that is derived by performing a union of the given cohortIds and ensuring
-#' that they conform to cohort era rules by applying era-fy logic.
+#' Delete all records from cohort table with the given cohort id. Edit privileges
+#' to the cohort table is required.
 #'
 #' @template Connection
 #'
 #' @template CohortTable
 #'
-#' @param cohortIds            An array of one or more cohort ids
-#'
-#' @param newCohortId         The cohort id of the new derived cohort. This should not already
-#'                            exist in the cohort table.
+#' @param cohortIds           An array of cohort Ids.
 #'
 #' @return
 #' NULL
 #'
 #' @export
-unionCohort <- function(connectionDetails = NULL,
-                        connection = NULL,
-                        cohortDatabaseSchema,
-                        cohortTable = "cohort",
-                        cohortIds,
-                        newCohortId) {
+deleteCohortRecords <- function(connectionDetails = NULL,
+                                connection = NULL,
+                                cohortDatabaseSchema,
+                                cohortTable = "cohort",
+                                cohortIds) {
   errorMessages <- checkmate::makeAssertCollection()
   checkmate::assertIntegerish(
     x = cohortIds,
     min.len = 1,
-    null.ok = FALSE,
-    add = errorMessages
-  )
-  checkmate::assertIntegerish(
-    x = newCohortId,
-    len = 1,
     null.ok = FALSE,
     add = errorMessages
   )
@@ -261,6 +325,26 @@ unionCohort <- function(connectionDetails = NULL,
     on.exit(DatabaseConnector::disconnect(connection))
   }
   
+  DatabaseConnector::renderTranslateExecuteSql(
+    connection = connection,
+    sql = " DELETE
+            FROM {@cohort_database_schema != ''} ? {@cohort_database_schema.@cohort_table} : {@cohort_table}
+            WHERE cohort_definition_id IN (@cohort_ids);",
+    profile = FALSE,
+    progressBar = FALSE,
+    reportOverallTime = FALSE,
+    cohort_database_schema = cohortDatabaseSchema,
+    cohort_table = cohortTable,
+    cohort_ids = cohortIds
+  )
+}
+
+
+getCohortIdsInCohortTable <- function(connectionDetails = NULL,
+                                      connection = NULL,
+                                      cohortDatabaseSchema = NULL,
+                                      cohortTable,
+                                      tempEmulationSchema = NULL) {
   cohortIdsInCohortTable <-
     DatabaseConnector::renderTranslateQuerySql(
       connection = connection,
@@ -269,65 +353,9 @@ unionCohort <- function(connectionDetails = NULL,
       snakeCaseToCamelCase = TRUE,
       cohort_database_schema = cohortDatabaseSchema,
       cohort_table = cohortTable
-    )
-  
-  if (length(intersect(cohortIdsInCohortTable$cohortDefinitionId, newCohortId)) == 1) {
-    stop(
-      paste0(
-        "There is already a cohort with the newCohortId ",
-        newCohortId,
-        " in the cohort table ",
-        cohortTable,
-        "."
-      )
-    )
-  }
-  
-  sqlUnionCohort <- "
-                  DROP TABLE IF EXISTS #cohort_union;
-                  SELECT @new_cohort_id cohort_definition_id, subject_id, cohort_start_date, cohort_end_date
-                  INTO #cohort_union
-                  FROM {@cohort_database_schema != ''} ? {@cohort_database_schema.@cohort_table} : {@cohort_table}
-                  WHERE cohort_definition_id IN (@cohort_ids);"
-  
-  DatabaseConnector::renderTranslateExecuteSql(
-    connection = connection,
-    sql = sqlUnionCohort,
-    profile = FALSE,
-    progressBar = FALSE,
-    reportOverallTime = FALSE,
-    cohort_database_schema = cohortDatabaseSchema,
-    cohort_table = cohortTable,
-    cohort_ids = cohortIds,
-    new_cohort_id = newCohortId
-  )
-  
-  eraFyCohort(
-    connection = connection,
-    cohortDatabaseSchema = NULL,
-    cohortTable = "#cohort_union",
-    cohortId = newCohortId
-  )
-  
-  DatabaseConnector::renderTranslateExecuteSql(
-    connection = connection,
-    sql = " INSERT INTO {@cohort_database_schema != ''} ? {@cohort_database_schema.@cohort_table} : {@cohort_table}
-            SELECT cohort_definition_id, subject_id, cohort_start_date, cohort_end_date
-            FROM #cohort_union
-            WHERE cohort_definition_id = @new_cohort_id;",
-    profile = FALSE,
-    progressBar = FALSE,
-    reportOverallTime = FALSE,
-    new_cohort_id = newCohortId,
-    cohort_database_schema = cohortDatabaseSchema,
-    cohort_table = cohortTable
-  )
-  
-  DatabaseConnector::renderTranslateExecuteSql(
-    connection = connection,
-    sql = " DROP TABLE IF EXISTS #cohort_union;",
-    profile = FALSE,
-    progressBar = FALSE,
-    reportOverallTime = FALSE
-  )
+    ) %>%
+    dplyr::pull(.data$cohortDefinitionId) %>%
+    unique() %>%
+    sort()
+  return(cohortIdsInCohortTable)
 }
