@@ -105,8 +105,12 @@ eraFyCohort <- function(connectionDetails = NULL,
     if (purgeConflicts) {
       performPurgeConflicts <- TRUE
     } else {
-      stop(paste0("The following cohortIds already exist in the target cohort table, causing conflicts :",
-                  paste0(conflicitingCohortIdsInTargetCohortTable, collapse = ",")))
+      stop(
+        paste0(
+          "The following cohortIds already exist in the target cohort table, causing conflicts :",
+          paste0(conflicitingCohortIdsInTargetCohortTable, collapse = ",")
+        )
+      )
     }
   }
   
